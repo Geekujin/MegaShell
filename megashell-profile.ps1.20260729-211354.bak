@@ -127,7 +127,7 @@ function Update-MegaShellProfile { # Checks for updates to the profile and updat
         Repository        = $UpdaterConfig.Repository
         Branch            = $UpdaterConfig.Branch
         ProfilePathInRepo = $UpdaterConfig.ProfilePathInRepo
-        CheckInterval     = [TimeSpan]$UpdaterConfig.CheckInterval
+        CheckInterval     = [TimeSpan]::Parse($UpdaterConfig.CheckInterval)
         TokenVariable     = $UpdaterConfig.GitHubToken
     }
 
@@ -289,7 +289,7 @@ function Update-ProfileConfig {
         Repository    = $ConfigUpdater.Repository
         Branch        = $ConfigUpdater.Branch
         PathInRepo    = $ConfigUpdater.ConfigPathInRepo
-        CheckInterval = [TimeSpan]$ConfigUpdater.CheckInterval
+        CheckInterval = [TimeSpan]::Parse($ConfigUpdater.CheckInterval)
         TokenVariable = $ConfigUpdater.GitHubToken
     }
 
