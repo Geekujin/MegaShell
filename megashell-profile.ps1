@@ -122,12 +122,13 @@ function Update-MegaShellProfile { # Checks for updates to the profile and updat
 
     # Map settings from the JSON Updater block
     $UpdaterConfig = $Global:Config.Updater
+    $IntervalString = if ($UpdaterConfig.CheckInterval) { $UpdaterConfig.CheckInterval } else { '24:00:00' }
     $Configuration = @{
         Owner             = $UpdaterConfig.Owner
         Repository        = $UpdaterConfig.Repository
         Branch            = $UpdaterConfig.Branch
         ProfilePathInRepo = $UpdaterConfig.ProfilePathInRepo
-        CheckInterval     = [TimeSpan]$UpdaterConfig.CheckInterval
+        CheckInterval     = [TimeSpan]$IntervalString
         TokenVariable     = $UpdaterConfig.GitHubToken
     }
 
@@ -282,6 +283,7 @@ function Update-ProfileConfig {
 
     # Get updater settings from the currently loaded global config
     $ConfigUpdater = $Global:Config.ConfigUpdater
+    $IntervalString = if ($ConfigUpdater.CheckInterval) { $ConfigUpdater.CheckInterval } else { '24:00:00' }
     if (-not $ConfigUpdater) { return }
 
     $Configuration = @{
@@ -289,7 +291,7 @@ function Update-ProfileConfig {
         Repository    = $ConfigUpdater.Repository
         Branch        = $ConfigUpdater.Branch
         PathInRepo    = $ConfigUpdater.ConfigPathInRepo
-        CheckInterval = [TimeSpan]$ConfigUpdater.CheckInterval
+        CheckInterval = [TimeSpan]$IntervalString
         TokenVariable = $ConfigUpdater.GitHubToken
     }
 
