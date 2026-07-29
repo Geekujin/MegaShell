@@ -1,0 +1,105 @@
+{
+    "Settings": {
+		"Name": "Anyone",
+        "WindowTitle": "MegaShell",
+        "VaultName": "",
+		"ProfilePath": "C:\\Path\\To\\megashell-profile.ps1",
+		"ScriptRoot": "C:\\Path\\To\\PowerShell\\scripts\\"
+    },
+	
+	"Updater": {
+		"Owner": "Geekujin",
+		"Repository": "MegaShell",
+		"Branch": "main",
+		"ProfilePathInRepo": "megashell-profile.ps1",
+		"GitHubToken": "SECRET:YOUR_GITHUB_TOKEN",
+		"CheckInterval": "24:00:00",
+		"lastcheck": ""
+	},
+
+	"ConfigUpdater": {
+		"Owner": "YOUR-GITHUB-USERNAME",
+		"Repository": "YOUR-REPO-NAME",
+		"Branch": "main",
+		"ConfigPathInRepo": "profile_config.json",
+		"GitHubToken": "SECRET:YOUR_GITHUB_TOKEN",
+		"CheckInterval": "24:00:00",
+		"lastcheck": ""
+	},
+
+    "Features": {
+		"ShowMOTD": true,
+		"ShowNetworkInfo": true,
+        "ShowDateTime": true,
+        "ShowWeather": true,
+        "ShowBanner": true
+	},
+
+	"FilePaths": {
+		"LogDirectory": "C:\\Path\\To\\LogsFolder\\",
+		"Reports": "C:\\Path\\To\\\\reportsfolder\\",
+		"EnvironmentVariables": "C:\\Path\\To\\envfolder\\"
+    },
+	
+	"NetworkLocations": {
+		"Network1": {
+			"Name": "ExampleNet",
+            "Latitude": 51.5014,
+            "Longitude": -0.1406,
+            "Location": "Buckingham Palace"
+        },
+        "Network2": {
+			"Name": "Wifi-Network-1",
+            "Latitude": 53.8109,
+            "Longitude": -3.0560,
+            "Location": "Blackpool Tower"
+        },
+        
+		"Network3": {
+			"Name": "Ethernet-2",
+            "Latitude": 53.4839,
+            "Longitude": -2.2446,
+            "Location": "Manchester"
+        }
+    },
+
+    "WeatherLocations": {
+        "One.local": {
+            "Latitude": 51.5014,
+            "Longitude": -0.1406,
+            "Name": "Bucks Palace"
+        },
+        "Two": {
+            "Latitude": 53.8109,
+            "Longitude": -3.0560,
+            "Name": "Blackpoool"
+        },
+		"Three": {
+            "Latitude": 53.4839,
+            "Longitude": -2.2446,
+            "Name": "MancTown"
+        }
+    },
+
+	"Banners": {
+        "Folder": "C:\\Path\\To\\banners\\",
+        "File": "Banner.txt"
+    },
+
+	"Users": {
+		"EntraAdmin": "adminuser.au@contoso.onmicrosoft.com",
+		"User": "normal.user@contoso.com"
+	},
+	
+	"DotSourceFiles": [
+
+	],
+	
+	"Aliases": {
+		"Reload": "Reload-Profile",
+		"grep": "Select-String",
+		"update": "Update-MegaShellProfile",
+		"megahelp": "Profile-Help"
+	}
+	
+}

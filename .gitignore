@@ -1,0 +1,5 @@
+profile_config.json
+**/nppBackup
+**/logs
+**/reports
+**/env
