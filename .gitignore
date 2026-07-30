@@ -3,3 +3,4 @@ profile_config.json
 **/logs
 **/reports
 **/env
+*.bak
