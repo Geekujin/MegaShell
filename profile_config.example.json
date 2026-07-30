@@ -1,12 +1,11 @@
-{
+﻿{
     "Settings": {
-		"Name": "Anyone",
-        "WindowTitle": "MegaShell",
+		"Name": "YOUR NAME",
+        "WindowTitle": "CyberShell",
         "VaultName": "",
-		"ProfilePath": "C:\\Path\\To\\megashell-profile.ps1",
+		"ProfilePath": "C:\\Path\\To\\cyber-powershell-profile.ps1",
 		"ScriptRoot": "C:\\Path\\To\\PowerShell\\scripts\\"
     },
-	
 	"Updater": {
 		"Owner": "Geekujin",
 		"Repository": "MegaShell",
@@ -16,7 +15,6 @@
 		"CheckInterval": "24:00:00",
 		"lastcheck": ""
 	},
-
 	"ConfigUpdater": {
 		"Owner": "YOUR-GITHUB-USERNAME",
 		"Repository": "YOUR-REPO-NAME",
@@ -26,21 +24,18 @@
 		"CheckInterval": "24:00:00",
 		"lastcheck": ""
 	},
-
-    "Features": {
+	"Features": {
 		"ShowMOTD": true,
 		"ShowNetworkInfo": true,
         "ShowDateTime": true,
         "ShowWeather": true,
         "ShowBanner": true
 	},
-
 	"FilePaths": {
 		"LogDirectory": "C:\\Path\\To\\LogsFolder\\",
-		"Reports": "C:\\Path\\To\\\\reportsfolder\\",
-		"EnvironmentVariables": "C:\\Path\\To\\envfolder\\"
+		"Variables": "C:\\Path\\To\\env\\",
+		"Reports": "C:\\Path\\To\\\\reportsfolder\\"
     },
-	
 	"NetworkLocations": {
 		"Network1": {
 			"Name": "ExampleNet",
@@ -62,7 +57,6 @@
             "Location": "Manchester"
         }
     },
-
     "WeatherLocations": {
         "One.local": {
             "Latitude": 51.5014,
@@ -80,26 +74,41 @@
             "Name": "MancTown"
         }
     },
-
 	"Banners": {
         "Folder": "C:\\Path\\To\\banners\\",
         "File": "Banner.txt"
     },
-
 	"Users": {
 		"EntraAdmin": "adminuser.au@contoso.onmicrosoft.com",
 		"User": "normal.user@contoso.com"
 	},
-	
 	"DotSourceFiles": [
 
 	],
-	
 	"Aliases": {
-		"Reload": "Reload-Profile",
-		"grep": "Select-String",
 		"update": "Update-MegaShellProfile",
-		"megahelp": "Profile-Help"
+		"Reload": "Reload-Profile",
+		"MegaHelp": "Profile-Help",
+		"grep": "Select-String"
+	},
+	"ArtThemes": {
+		"Standard": {
+			"░": "DarkRed",
+			"▒": "Gray",
+			"▓": "DarkCyan",
+			"█": "White",
+			"|": "Blue",
+			"_": "DarkBlue"
+		},
+		"Matrix": {
+			"░": "DarkGreen",
+			"█": "Green",
+			"|": "DarkGreen"
+		},
+		"Fire": {
+			"░": "DarkRed",
+			"█": "Yellow",
+			"|": "Red"
+		}
 	}
-	
 }
