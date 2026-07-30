@@ -5,13 +5,8 @@
 .DESCRIPTION
     Profile to customise your PowerShell environment.Loads bespoke config and variables from profile_config.json file. 
 	
-.DETAILS
-	Each function in the script has brief comments explaining its useage. The profile_config.json can be used for storing different variables such as folder paths, usernames and other info. When used with Windows secrets vaults it can also be used to store references to sensitive info such as API keys and passwords, although these vaults are unique per-device.
-		
-	Use command 'Reload' if changes are made to this file or the config file whilst terminal is open.
-	
-.NOTES
-    Version: 0.5
+.VERSION
+    0.9
 #>
 
 
@@ -108,6 +103,7 @@ function Write-ProfileLog {
         "[$Timestamp] [$Level] $Message" | Out-File -FilePath $LogFile -Append -Encoding UTF8 -ErrorAction SilentlyContinue
     } catch {}
 }
+
 function Update-MegaShellProfile { # Checks for updates to the profile and updates it if a newer version is available
     <#
     .SYNOPSIS
@@ -165,11 +161,10 @@ function Update-MegaShellProfile { # Checks for updates to the profile and updat
         'X-GitHub-Api-Version' = '2022-11-28'
     }
 
-    $TokenVariable = $Configuration.TokenVariable
-    if (-not [String]::IsNullOrWhiteSpace($TokenVariable) -and -not [String]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($TokenVariable))) {
-        $Token = [Environment]::GetEnvironmentVariable($TokenVariable)
-        $Headers.Authorization = "Bearer $Token"
-    }
+    $Token = $Configuration.TokenVariable
+	if (-not [string]::IsNullOrWhiteSpace($Token)) {
+		$Headers.Authorization = "Bearer $Token"
+	}
 
     $EncodedRepositoryPath = ($Configuration.ProfilePathInRepo -split '/') | ForEach-Object { [Uri]::EscapeDataString($_) }
     $EncodedRepositoryPath = $EncodedRepositoryPath -join '/'
@@ -190,10 +185,9 @@ function Update-MegaShellProfile { # Checks for updates to the profile and updat
             $LocalHash = Get-GitBlobHash -Bytes $LocalBytes
         }
 
-        # Update the JSON file safely by reading a fresh copy from disk to avoid saving vault secrets
-        $RawConfig = Get-Content -Path $ConfigFilePath -Raw | ConvertFrom-Json
-        $RawConfig.Updater.lastcheck = [DateTime]::UtcNow.ToString('o')
-        $RawConfig | ConvertTo-Json -Depth 10 | Set-Content -Path $ConfigFilePath -Encoding UTF8
+        # Update Updater.lastcheck without altering JSON formatting
+		Set-JsonLastCheck -Path $ConfigFilePath -Section 'Updater'
+
 
         if ($LocalHash -eq $RemoteHash) {
             return
@@ -326,14 +320,18 @@ function Update-ProfileConfig {
 
     # Strict token check (required for private repos)
     $TokenVariable = $Configuration.TokenVariable
-    if (-not [String]::IsNullOrWhiteSpace($TokenVariable) -and -not [String]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($TokenVariable))) {
-        $Token = [Environment]::GetEnvironmentVariable($TokenVariable)
-        $Headers.Authorization = "Bearer $Token"
-    } else {
-        Write-Warning "GitHub token not found in environment variable '$TokenVariable'. Cannot check private config repository."
-        return
-    }
 
+	if ([string]::IsNullOrWhiteSpace($TokenVariable)) {
+		Write-Warning "GitHub token not configured."
+	return
+	}
+
+	if ([string]::IsNullOrWhiteSpace($Token)) {
+	$Token = $TokenVariable
+	}
+
+	$Headers.Authorization = "Bearer $Token"
+	
     $EncodedRepositoryPath = ($Configuration.PathInRepo -split '/') | ForEach-Object { [Uri]::EscapeDataString($_) }
     $EncodedRepositoryPath = $EncodedRepositoryPath -join '/'
     $ApiUri = ('https://api.github.com/repos/{0}/{1}/contents/{2}?ref={3}' -f [Uri]::EscapeDataString($Configuration.Owner), [Uri]::EscapeDataString($Configuration.Repository), $EncodedRepositoryPath, [Uri]::EscapeDataString($Configuration.Branch))
@@ -354,9 +352,7 @@ function Update-ProfileConfig {
         }
 
         # Update the timestamp on the CURRENT file just in case no remote update is needed
-        $RawConfig = Get-Content -Path $CurrentConfigPath -Raw | ConvertFrom-Json
-        $RawConfig.ConfigUpdater.lastcheck = [DateTime]::UtcNow.ToString('o')
-        $RawConfig | ConvertTo-Json -Depth 10 | Set-Content -Path $CurrentConfigPath -Encoding UTF8
+		Set-JsonLastCheck -Path $CurrentConfigPath -Section 'ConfigUpdater'
 
         if ($LocalHash -eq $RemoteHash) { return }
 
@@ -379,13 +375,11 @@ function Update-ProfileConfig {
 
         # Strict JSON Validation: Ensures the downloaded file isn't corrupted or empty
         try {
-            $NewConfigObj = Get-Content -LiteralPath $TemporaryPath -Raw | ConvertFrom-Json
-            
-            # Apply the current UTC timestamp to the downloaded file so it doesn't trigger again immediately
-            $NewConfigObj.ConfigUpdater.lastcheck = [DateTime]::UtcNow.ToString('o')
-            
-            # Re-save it back to the temporary path cleanly
-            $NewConfigObj | ConvertTo-Json -Depth 10 | Set-Content -Path $TemporaryPath -Encoding UTF8
+			# Validate JSON only
+			$null = Get-Content -LiteralPath $TemporaryPath -Raw | ConvertFrom-Json
+
+			# Update timestamp without changing formatting
+			Set-JsonLastCheck -Path $TemporaryPath -Section 'ConfigUpdater'
         } catch {
             throw "The downloaded config file contains invalid JSON syntax."
         }
@@ -419,9 +413,45 @@ function Update-ProfileConfig {
     }
 }
 
+function Set-JsonLastCheck {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path,
 
-Update-MegaShellProfile
-Update-ProfileConfig
+        [Parameter(Mandatory)]
+        [string]$Section,
+
+        [string]$Timestamp = ([DateTime]::UtcNow.ToString('o'))
+    )
+
+    $Content = Get-Content -LiteralPath $Path -Raw
+
+    $SectionStart = $Content.IndexOf("`"$Section`"")
+
+    if ($SectionStart -lt 0) {
+        throw "Section '$Section' not found."
+    }
+
+    $LastCheckPos = $Content.IndexOf('"lastcheck"', $SectionStart)
+
+    if ($LastCheckPos -lt 0) {
+        throw "'lastcheck' not found in section '$Section'."
+    }
+
+    $ValueStart = $Content.IndexOf('"', $Content.IndexOf(':', $LastCheckPos)) + 1
+    $ValueEnd   = $Content.IndexOf('"', $ValueStart)
+
+    if ($ValueStart -lt 1 -or $ValueEnd -lt 0) {
+        throw "Could not locate lastcheck value in section '$Section'."
+    }
+
+    $Content = $Content.Substring(0, $ValueStart) +
+               $Timestamp +
+               $Content.Substring($ValueEnd)
+
+    Set-Content -LiteralPath $Path -Value $Content -Encoding UTF8
+}
 
 function Get-Network { # Returns the current active network name
     try {
@@ -566,35 +596,6 @@ function Write-ColorMappedArt { # Maps specific colours to specific characters
     Write-Host ""
 }
 
-function Write-Rainbow { # Write to terminal using a different colour for each character
-    param(
-        [Parameter(Mandatory=$true)]
-        [string]$Text
-    )
-
-    # Define the colors to cycle through (the 'rainbow')
-    $Colors = "Red", "Yellow", "Green", "Cyan", "Blue", "Magenta"
-    $ColorIndex = 0
-
-    # Split the input text into an array of characters
-    $Characters = $Text.ToCharArray()
-
-    # Loop through each character
-    foreach ($Character in $Characters) {
-        # Get the color based on the current index, using the modulus operator (%) to loop back
-        $Color = $Colors[$ColorIndex % $Colors.Count]
-        
-        # Write the character with the selected color, without a new line
-        Write-Host -Object $Character -ForegroundColor $Color -NoNewline
-        
-        # Increment the index to move to the next color
-        $ColorIndex++
-    }
-
-    # Write a final newline to ensure the next prompt/output starts on a fresh line
-    Write-Host ""
-}
-
 function Get-DateWithOrdinal { # Gets current date with st, nd, rd, th etc.
     $date = Get-Date
     $day = $date.Day
@@ -688,158 +689,6 @@ function Show-Weather {
 	Write-Host " "
 }
 
-function Get-Weather {
-    [CmdletBinding()]
-    param([hashtable]$LocationMap)
-
-    # --- Helper Functions ---
-
-    function Get-TemperatureEmoji {
-        param([double]$Temp)
-
-        if ($Temp -le 0)  { return "🥶" } # Freezing
-        if ($Temp -le 10) { return "🧥" } # Coat needed
-        if ($Temp -le 18) { return "🌥️" } # Cool
-        if ($Temp -le 25) { return "😎" } # Nice / Warm
-        if ($Temp -le 30) { return "🥵" } # Hot
-        return "🔥"                       # Extreme
-    }
-
-    function Get-WeatherDescription {
-        param([int]$Code)
-        
-        $Map = @{
-            0 = @{T="Clear"; E="☀️"}; 1 = @{T="Mainly clear"; E="🌤️"}; 2 = @{T="Partly cloudy"; E="⛅"}; 3 = @{T="Overcast"; E="☁️"};
-            45 = @{T="Fog"; E="🌫️"}; 48 = @{T="Depositing rime fog"; E="🌫️"}; 51 = @{T="Light drizzle"; E="🌧"};
-            53 = @{T="Moderate drizzle"; E="🌧"}; 55 = @{T="Dense drizzle"; E="🌧️"}; 61 = @{T="Slight rain"; E="🌧️"};
-            63 = @{T="Moderate rain"; E="🌧️"}; 65 = @{T="Heavy rain"; E="🌧️"}; 71 = @{T="Slight snow"; E="🌨️"};
-            73 = @{T="Moderate snow"; E="🌨️"}; 75 = @{T="Heavy snow"; E="🌨️"}; 
-            80 = @{T="Slight showers"; E="🌧️"}; 95 = @{T="Thunderstorms"; E="⛈️"}
-        }
-
-        if ($Map.ContainsKey($Code)) { 
-            return [PSCustomObject]@{ Text = $Map[$Code].T; Emoji = $Map[$Code].E }
-        }
-        return [PSCustomObject]@{ Text = "Unknown (Code $Code)"; Emoji = "❓" }
-    }
-
-    function Get-AirQualityScore {
-        param([double]$Value)
-        if ($Value -le 20)  { return [PSCustomObject]@{ Text="Good"; Emoji="🟩" } }
-        if ($Value -le 40)  { return [PSCustomObject]@{ Text="Fair"; Emoji="🟨" } }
-        if ($Value -le 60)  { return [PSCustomObject]@{ Text="Moderate"; Emoji="🟧" } }
-        if ($Value -le 80)  { return [PSCustomObject]@{ Text="Poor"; Emoji="🟥" } }
-        if ($Value -le 100) { return [PSCustomObject]@{ Text="Very Poor"; Emoji="🆘" } }
-        return [PSCustomObject]@{ Text="Extremely Poor"; Emoji="⚠️" }
-    }
-
-    function Get-UVIndexScore {
-        param([double]$Value)
-        if ($Value -le 2)  { return [PSCustomObject]@{ Text="Low"; Emoji="🟢" } }
-        if ($Value -le 5)  { return [PSCustomObject]@{ Text="Moderate"; Emoji="🟡" } }
-        if ($Value -le 10) { return [PSCustomObject]@{ Text="High"; Emoji="🟠" } }
-        return [PSCustomObject]@{ Text="Extreme"; Emoji="🔴" }
-    }
-
-    # --- Core Data Retrieval Functions ---
-
-    function Get-Forecast {
-        [CmdletBinding()]
-        param (
-            [Parameter(Mandatory=$true)] [double]$Latitude,
-            [Parameter(Mandatory=$true)] [double]$Longitude
-        )
-
-        $Uri = "https://api.open-meteo.com/v1/forecast?latitude=$Latitude&longitude=$Longitude&current_weather=true&temperature_unit=celsius&wind_speed_unit=kmh&timezone=auto&forecast_days=1"
-
-        try {
-            $Data = Invoke-RestMethod -Uri $Uri -Method Get -ErrorAction Stop
-            $Current = $Data.current_weather
-            
-            $DescObj = Get-WeatherDescription -Code $Current.weathercode
-            $TempEmoji = Get-TemperatureEmoji -Temp $Current.temperature
-
-            [PSCustomObject]@{
-                Temperature = $Current.temperature
-                TempEmoji   = $TempEmoji
-                CondText    = $DescObj.Text
-                CondEmoji   = $DescObj.Emoji
-            }
-        } catch {
-            Write-Error "Failed to retrieve forecast: $($_.Exception.Message)"
-        }
-    }
-
-    function Get-AirQuality {
-        [CmdletBinding()]
-        param (
-            [Parameter(Mandatory=$true)] [double]$Latitude,
-            [Parameter(Mandatory=$true)] [double]$Longitude
-        )
-        
-        $Uri = "https://air-quality-api.open-meteo.com/v1/air-quality?latitude=$Latitude&longitude=$Longitude&current=european_aqi,uv_index&forecast_days=1"
-
-        try {
-            $Data = Invoke-RestMethod -Uri $Uri -Method Get -ErrorAction Stop
-            
-            $AQIObj = Get-AirQualityScore -Value $Data.current.european_aqi
-            $UVObj  = Get-UVIndexScore -Value $Data.current.uv_index
-
-            [PSCustomObject]@{
-                AQI_Val   = $Data.current.european_aqi
-                AQI_Text  = $AQIObj.Text
-                AQI_Emoji = $AQIObj.Emoji
-                UV_Val    = $Data.current.uv_index
-                UV_Text   = $UVObj.Text
-                UV_Emoji  = $UVObj.Emoji
-            }
-        } catch {
-            Write-Error "Failed to retrieve air quality: $($_.Exception.Message)"
-        }
-    }
-
-    # --- Main Orchestrator Logic ---
-
-    # 1. Network Detection
-    $NetProfile = Get-NetConnectionProfile | Where-Object { $_.IPv4Connectivity -eq 'Internet' -or $_.IPv6Connectivity -eq 'Internet' }
-    $NetworkName = if ($NetProfile) { $NetProfile.Name } else { "M80" }
-    
-    # 2. Location Lookup
-    if (-not $LocationMap.ContainsKey($NetworkName)) {
-        Write-Warning "Network '$NetworkName' not mapped. Defaulting to 'M80'."
-        $NetworkName = "M80"
-    }
-    $Loc = $LocationMap[$NetworkName]
-
-    # 3. Retrieve Data
-    $Forecast = Get-Forecast -Latitude $Loc.Latitude -Longitude $Loc.Longitude
-    $AirData  = Get-AirQuality -Latitude $Loc.Latitude -Longitude $Loc.Longitude
-
-    # 4. Return Unified Object
-    [PSCustomObject]@{
-        Location         = $Loc.Name
-        Network          = $NetworkName
-        
-        # Temperature
-        Temperature_C    = $Forecast.Temperature
-        Temperature_Emoji= $Forecast.TempEmoji
-
-        # Conditions
-        Condition_Text   = $Forecast.CondText
-        Condition_Emoji  = $Forecast.CondEmoji
-        
-        # Air Quality
-        AirQuality_AQI   = $AirData.AQI_Val
-        AirQuality_Text  = $AirData.AQI_Text
-        AirQuality_Emoji = $AirData.AQI_Emoji
-        
-        # UV Index
-        UVIndex_Numeric  = $AirData.UV_Val
-        UVIndex_Text     = $AirData.UV_Text
-        UVIndex_Emoji    = $AirData.UV_Emoji
-    }
-}
-
 function Show-MOTD { # Displays a random message from a motd.txt file
     <#
     .SYNOPSIS
@@ -882,7 +731,6 @@ function Show-MOTD { # Displays a random message from a motd.txt file
     }
 }
 
-# Functions that users can call directly
 function Reload-Profile { # Reloads the PowerShell profile
     <#
     .SYNOPSIS
@@ -905,7 +753,7 @@ function Reload-Profile { # Reloads the PowerShell profile
 function Profile-Help {
     <#
     .SYNOPSIS
-        Displays help for CyberShell profile functions.
+        Displays help for MegaShell profile functions.
     .DESCRIPTION
         Run without parameters to see a list of all public custom profile functions.
         Pass a function name to view its full PowerShell help documentation.
@@ -919,330 +767,17 @@ function Profile-Help {
     if (-not [string]::IsNullOrWhiteSpace($FunctionName)) {
         Get-Help $FunctionName -Detailed
     } else {
-        Write-Host "`n=== CyberShell Functions ===" -ForegroundColor Cyan
+        Write-Host "`n=== MegaShell Functions ===" -ForegroundColor Cyan
         
         $ProfilePath = $Global:Config.Settings.ProfilePath
         
         # Retrieve all functions loaded directly from the profile script file
-        $ProfileFunctions = Get-Command -CommandType Function | Where-Object { $_.ScriptBlock.File -eq $ProfilePath }
-        
-        foreach ($Func in $ProfileFunctions) {
-            $Help = Get-Help $Func.Name -ErrorAction SilentlyContinue
-            
-            # Only display the function if a Synopsis exists
-            if ($Help -and -not [string]::IsNullOrWhiteSpace($Help.Synopsis)) {
-                Write-Host (" {0,-30} " -f $Func.Name) -ForegroundColor Green -NoNewline
-                Write-Host $Help.Synopsis.Trim() -ForegroundColor Gray
-            }
-        }
+		Write-Host "This is still on my toDo list, I'll write some help documentation soon"
         
         Write-Host "`nRun 'Profile-Help <FunctionName>' for detailed syntax.`n" -ForegroundColor DarkGray
     }
 }
-function Show-Networks { # Show a row of network info: Network name, External IP, and VPN IP if connected
-    <#
-    .SYNOPSIS
-        Displays network information.
-    .DESCRIPTION
-        This function shows the network name, internal and external IPs, and the VPN IP if connected.
-    #>
-    Write-Host "Network" -ForegroundColor Cyan
-    Write-Host " 📡 Name: " -NoNewLine -ForegroundColor DarkCyan
-    Write-Host "$Net" -NoNewLine -ForegroundColor White
 
-    Write-Host $Spacer -NoNewLine -ForegroundColor DarkGray
-    Write-Host "🌍 Ext: " -NoNewLine -ForegroundColor DarkCyan
-    Write-Host "$ExtIP" -NoNewLine -ForegroundColor White
-
-    Write-Host $Spacer -NoNewLine -ForegroundColor DarkGray
-    Write-Host "🏠 LAN: " -NoNewLine -ForegroundColor DarkCyan
-    Write-Host "$LANIP" -NoNewLine -ForegroundColor White
-    # Only show VPN if it exists
-    if ($VpnIP) {
-        Write-Host $Spacer -NoNewLine -ForegroundColor DarkGray
-        Write-Host "🔒 VPN: " -NoNewLine -ForegroundColor DarkCyan
-        Write-Host "$VpnIP" -ForegroundColor White
-    } else {
-        Write-Host " " # Just finish the line
-    }
-    Write-Host " "
-}
-
-function Connect-M365Service { # Easily connect to any 365 Service
-    <#
-    .SYNOPSIS
-        Connects to a Microsoft 365 service.
-    .DESCRIPTION
-        This function provides a simple way to connect to various Microsoft 365 services.
-        Run Connect-M365Service -Service <ServiceName> to connect. Use -InstallMissingModules to automatically install required modules if they are not present.
-        Running without parameters will display a list of available services and their connection status.
-    #>
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory = $true)]
-        [ValidateSet(
-            'ExchangeOnline',
-            'Purview',
-            'Graph',
-            'Teams',
-            'SharePointOnline',
-            'All'
-        )]
-        [string[]]$Service,
-
-        [string]$UserPrincipalName = $script:config.users.entraadmin,
-
-        [ValidatePattern('^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')]
-        [string]$TenantId,
-
-        [string[]]$GraphScopes = @('User.Read'),
-
-        [ValidatePattern('^https://[A-Za-z0-9-]+-admin\.sharepoint\.com/?$')]
-        [string]$SharePointAdminUrl,
-
-        [switch]$UseDeviceCode,
-
-        [switch]$InstallMissingModules,
-
-        [switch]$ForceReconnect
-    )
-
-    Set-StrictMode -Version Latest
-    $ErrorActionPreference = 'Stop'
-
-    $serviceDefinitions = [ordered]@{
-        ExchangeOnline = @{
-            Module  = 'ExchangeOnlineManagement'
-            Command = 'Connect-ExchangeOnline'
-        }
-        Purview = @{
-            Module  = 'ExchangeOnlineManagement'
-            Command = 'Connect-IPPSSession'
-        }
-        Graph = @{
-            Module  = 'Microsoft.Graph.Authentication'
-            Command = 'Connect-MgGraph'
-        }
-        Teams = @{
-            Module  = 'MicrosoftTeams'
-            Command = 'Connect-MicrosoftTeams'
-        }
-        SharePointOnline = @{
-            Module  = 'Microsoft.Online.SharePoint.PowerShell'
-            Command = 'Connect-SPOService'
-        }
-    }
-
-    function Import-RequiredM365Module {
-        param(
-            [Parameter(Mandatory = $true)]
-            [string]$ModuleName,
-
-            [Parameter(Mandatory = $true)]
-            [string]$RequiredCommand
-        )
-
-        $availableModule = Get-Module -ListAvailable -Name $ModuleName |
-            Sort-Object Version -Descending |
-            Select-Object -First 1
-
-        if (-not $availableModule) {
-            if (-not $InstallMissingModules) {
-                throw "The '$ModuleName' module is not installed. Install it with: Install-Module -Name '$ModuleName' -Scope CurrentUser, or rerun with -InstallMissingModules."
-            }
-
-            Write-Host "Installing module $ModuleName..." -ForegroundColor Cyan
-            Install-Module -Name $ModuleName -Scope CurrentUser -Repository PSGallery -AllowClobber -Force
-        }
-
-        Write-Verbose "Importing module $ModuleName."
-        Import-Module -Name $ModuleName -ErrorAction Stop
-
-        if (-not (Get-Command -Name $RequiredCommand -ErrorAction SilentlyContinue)) {
-            throw "Module '$ModuleName' was imported, but '$RequiredCommand' is unavailable."
-        }
-    }
-
-    function New-ConnectionResult {
-        param(
-            [Parameter(Mandatory = $true)]
-            [string]$ServiceName,
-
-            [Parameter(Mandatory = $true)]
-            [ValidateSet('Connected', 'Failed')]
-            [string]$Status,
-
-            [string]$Details
-        )
-
-        return [pscustomobject]@{
-            Service = $ServiceName
-            Status  = $Status
-            Details = $Details
-        }
-    }
-
-    $requestedServices = if ($Service -contains 'All') {
-        @(
-            'ExchangeOnline'
-            'Purview'
-            'Graph'
-            'Teams'
-            'SharePointOnline'
-        )
-    }
-    else {
-        @($Service | Select-Object -Unique)
-    }
-
-    if (
-        $requestedServices -contains 'SharePointOnline' -and
-        [string]::IsNullOrWhiteSpace($SharePointAdminUrl)
-    ) {
-        throw "-SharePointAdminUrl is required for SharePoint Online. Example: -SharePointAdminUrl 'https://contoso-admin.sharepoint.com'"
-    }
-
-    $requiredModules = foreach ($serviceName in $requestedServices) {
-        $definition = $serviceDefinitions[$serviceName]
-        [pscustomobject]@{
-            Module  = $definition.Module
-            Command = $definition.Command
-        }
-    }
-
-    $modulesToImport = $requiredModules |
-        Group-Object Module |
-        ForEach-Object {
-            [pscustomobject]@{
-                Module   = $_.Name
-                Commands = @($_.Group.Command | Select-Object -Unique)
-            }
-        }
-
-    foreach ($moduleItem in $modulesToImport) {
-        foreach ($requiredCommand in $moduleItem.Commands) {
-            Import-RequiredM365Module -ModuleName $moduleItem.Module -RequiredCommand $requiredCommand
-        }
-    }
-
-    $results = [System.Collections.Generic.List[object]]::new()
-
-    foreach ($serviceName in $requestedServices) {
-        try {
-            switch ($serviceName) {
-                'ExchangeOnline' {
-                    if ($ForceReconnect -and (Get-Command Disconnect-ExchangeOnline -ErrorAction SilentlyContinue)) {
-                        Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
-                    }
-
-                    $parameters = @{
-                        ShowBanner = $false
-                        ErrorAction = 'Stop'
-						DisableWAM = $true
-                    }
-
-                    if (-not [string]::IsNullOrWhiteSpace($UserPrincipalName)) {
-                        $parameters.UserPrincipalName = $UserPrincipalName
-                    }
-
-                    Write-Host 'Connecting to Exchange Online...' -ForegroundColor Cyan
-                    Connect-ExchangeOnline @parameters
-
-                    $results.Add((New-ConnectionResult -ServiceName $serviceName -Status Connected -Details 'Exchange Online PowerShell connection established.'))
-                }
-
-                'Purview' {
-                    $parameters = @{
-                        ShowBanner = $false
-                        ErrorAction = 'Stop'
-						DisableWAM = $true
-                    }
-
-                    if (-not [string]::IsNullOrWhiteSpace($UserPrincipalName)) {
-                        $parameters.UserPrincipalName = $UserPrincipalName
-                    }
-
-                    Write-Host 'Connecting to Microsoft Purview...' -ForegroundColor Cyan
-                    Connect-IPPSSession @parameters
-
-                    $results.Add((New-ConnectionResult -ServiceName $serviceName -Status Connected -Details 'Security and Compliance PowerShell connection established.'))
-                }
-
-                'Graph' {
-                    if ($ForceReconnect -and (Get-MgContext -ErrorAction SilentlyContinue)) {
-                        Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null
-                    }
-
-                    $parameters = @{
-                        Scopes       = $GraphScopes
-                        ContextScope = 'Process'
-                        NoWelcome    = $true
-                        ErrorAction  = 'Stop'
-                    }
-
-                    if (-not [string]::IsNullOrWhiteSpace($TenantId)) {
-                        $parameters.TenantId = $TenantId
-                    }
-
-                    if ($UseDeviceCode) {
-                        $parameters.UseDeviceCode = $true
-                    }
-
-                    Write-Host 'Connecting to Microsoft Graph...' -ForegroundColor Cyan
-                    Connect-MgGraph @parameters
-                    $graphContext = Get-MgContext
-
-                    $details = "Connected as $($graphContext.Account); tenant $($graphContext.TenantId)."
-                    $results.Add((New-ConnectionResult -ServiceName $serviceName -Status Connected -Details $details))
-                }
-
-                'Teams' {
-                    if ($ForceReconnect -and (Get-Command Disconnect-MicrosoftTeams -ErrorAction SilentlyContinue)) {
-                        Disconnect-MicrosoftTeams -ErrorAction SilentlyContinue | Out-Null
-                    }
-
-                    $parameters = @{
-                        ErrorAction = 'Stop'
-                    }
-
-                    if (-not [string]::IsNullOrWhiteSpace($TenantId)) {
-                        $parameters.TenantId = $TenantId
-                    }
-
-                    if (-not [string]::IsNullOrWhiteSpace($UserPrincipalName)) {
-                        $parameters.AccountId = $UserPrincipalName
-                    }
-
-                    Write-Host 'Connecting to Microsoft Teams...' -ForegroundColor Cyan
-                    Connect-MicrosoftTeams @parameters | Out-Null
-
-                    $results.Add((New-ConnectionResult -ServiceName $serviceName -Status Connected -Details 'Microsoft Teams PowerShell connection established.'))
-                }
-
-                'SharePointOnline' {
-                    if ($ForceReconnect -and (Get-Command Disconnect-SPOService -ErrorAction SilentlyContinue)) {
-                        Disconnect-SPOService -ErrorAction SilentlyContinue
-                    }
-
-                    Write-Host 'Connecting to SharePoint Online...' -ForegroundColor Cyan
-                    Connect-SPOService -Url $SharePointAdminUrl -ErrorAction Stop
-
-                    $results.Add((New-ConnectionResult -ServiceName $serviceName -Status Connected -Details "Connected to $SharePointAdminUrl."))
-                }
-            }
-        }
-        catch {
-            $results.Add((New-ConnectionResult -ServiceName $serviceName -Status Failed -Details $_.Exception.Message))
-            Write-Error -Message "Failed to connect to $serviceName. $($_.Exception.Message)" -ErrorAction Continue
-        }
-    }
-
-    Write-Host ''
-    Write-Host 'Microsoft 365 connection results' -ForegroundColor Cyan
-    $results | Format-Table -AutoSize
-
-    return $results
-}
 
 
 # === [Profile Setup] ===
@@ -1254,6 +789,8 @@ try {
     return
 }
 
+Update-MegaShellProfile
+Update-ProfileConfig
 Resolve-ConfigSecrets -Object $Global:Config # Replace SECRET placeholders with actual values
 $env:PATH += "$($Config.Settings.ScriptRoot);" # Add the folder with PowerShell scripts to the PATH
 $host.ui.RawUI.WindowTitle = $Config.Settings.WindowTitle # Rename the Titlebar/Tab
@@ -1263,7 +800,7 @@ $host.ui.RawUI.WindowTitle = $Config.Settings.WindowTitle # Rename the Titlebar/
 
 if ($Global:Config.DotSourceFiles) {
 	Write-Host "Dot-sourcing scripts...`n" -ForegroundColor DarkGray
-    $DefaultRoot = $Global:Config.FilePaths.ScriptRoot
+    $DefaultRoot = $Global:Config.Settings.ScriptRoot
 
     foreach ($Entry in $Global:Config.DotSourceFiles) {
         
@@ -1353,7 +890,20 @@ $Net = Get-Network
 # Misc variables
 $Spacer = "  |  " # Used for spacing items in horizontal bars
 
-
+$MegaBanner = @"
+ ██████   ██████                              █████████  █████               ████  ████ 
+░░██████ ██████                              ███░░░░░███░░███               ░░███ ░░███ 
+ ░███░█████░███   ██████   ███████  ██████  ░███    ░░░  ░███████    ██████  ░███  ░███ 
+ ░███░░███ ░███  ███░░███ ███░░███ ░░░░░███ ░░█████████  ░███░░███  ███░░███ ░███  ░███ 
+ ░███ ░░░  ░███ ░███████ ░███ ░███  ███████  ░░░░░░░░███ ░███ ░███ ░███████  ░███  ░███ 
+ ░███      ░███ ░███░░░  ░███ ░███ ███░░███  ███    ░███ ░███ ░███ ░███░░░   ░███  ░███ 
+ █████     █████░░██████ ░░███████░░████████░░█████████  ████ █████░░██████  █████ █████
+░░░░░     ░░░░░  ░░░░░░   ░░░░░███ ░░░░░░░░  ░░░░░░░░░  ░░░░ ░░░░░  ░░░░░░  ░░░░░ ░░░░░ 
+                          ███ ░███                                                      
+                         ░░██████                                                       
+                          ░░░░░░                                                         
+						  
+"@
 
 # ==== [Aliases] ====
 
@@ -1379,9 +929,16 @@ if ($Global:Config.Aliases) {
 Start-Sleep -Seconds 2
 Clear-Host
 if ($Global:Config.Features.ShowBanner) {
-    Write-Host " "
-    Write-ColorMappedArt -Text $BannerArt -Theme "Standard"
-    Write-Host " "
+    if ($Global:Config.Features.ExternalBanner) {
+        Write-Host " "
+		Write-ColorMappedArt -Text $BannerArt -Theme "Standard"
+		Write-Host " "
+    }
+    else {
+        Write-Host " "
+		Write-ColorMappedArt -Text $MegaBanner -Theme "Standard"
+		Write-Host " "
+    }
 }
 
 if ($Global:Config.Features.ShowNetworkInfo) {
